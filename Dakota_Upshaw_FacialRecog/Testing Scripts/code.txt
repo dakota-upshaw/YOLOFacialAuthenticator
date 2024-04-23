@@ -1,0 +1,264 @@
+Data Collection
+
+from time import time
+
+import cv2
+import cvzone
+from cvzone.FaceDetectionModule import FaceDetector
+
+####################################
+classID = 0  # 0 is fake and 1 is real
+outputFolderPath = 'Dataset/DataCollect'
+confidence = 0.8
+save = True
+blurThreshold = 35  # Larger is more focus
+
+debug = False
+offsetPercentageW = 10
+offsetPercentageH = 20
+camWidth, camHeight = 640, 480
+floatingPoint = 6
+####################################
+
+
+cap = cv2.VideoCapture(1)
+cap.set(3, camWidth)
+cap.set(4, camHeight)
+
+detector = FaceDetector()
+while True:
+    success, img = cap.read()
+    imgOut = img.copy()
+    img, bboxs = detector.findFaces(img, draw=False)
+
+    listBlur = []  # True False values indicating if the faces are blur or not
+    listInfo = []  # The normalized values and the class name for the label txt file
+    if bboxs:
+        # bboxInfo - "id","bbox","score","center"
+        for bbox in bboxs:
+            x, y, w, h = bbox["bbox"]
+            score = bbox["score"][0]
+            # print(x, y, w, h)
+
+            # ------  Check the score --------
+            if score > confidence:
+
+                # ------  Adding an offset to the face Detected --------
+                offsetW = (offsetPercentageW / 100) * w
+                x = int(x - offsetW)
+                w = int(w + offsetW * 2)
+                offsetH = (offsetPercentageH / 100) * h
+                y = int(y - offsetH * 3)
+                h = int(h + offsetH * 3.5)
+
+                # ------  To avoid values below 0 --------
+                if x < 0: x = 0
+                if y < 0: y = 0
+                if w < 0: w = 0
+                if h < 0: h = 0
+
+                # ------  Find Blurriness --------
+                imgFace = img[y:y + h, x:x + w]
+                cv2.imshow("Face", imgFace)
+                blurValue = int(cv2.Laplacian(imgFace, cv2.CV_64F).var())
+                if blurValue > blurThreshold:
+                    listBlur.append(True)
+                else:
+                    listBlur.append(False)
+
+                # ------  Normalize Values  --------
+                ih, iw, _ = img.shape
+                xc, yc = x + w / 2, y + h / 2
+
+                xcn, ycn = round(xc / iw, floatingPoint), round(yc / ih, floatingPoint)
+                wn, hn = round(w / iw, floatingPoint), round(h / ih, floatingPoint)
+                # print(xcn, ycn, wn, hn)
+
+                # ------  To avoid values above 1 --------
+                if xcn > 1: xcn = 1
+                if ycn > 1: ycn = 1
+                if wn > 1: wn = 1
+                if hn > 1: hn = 1
+
+                listInfo.append(f"{classID} {xcn} {ycn} {wn} {hn}\n")
+
+                # ------  Drawing --------
+                cv2.rectangle(imgOut, (x, y, w, h), (255, 0, 0), 3)
+                cvzone.putTextRect(imgOut, f'Score: {int(score * 100)}% Blur: {blurValue}', (x, y - 0),
+                                   scale=2, thickness=3)
+                if debug:
+                    cv2.rectangle(img, (x, y, w, h), (255, 0, 0), 3)
+                    cvzone.putTextRect(img, f'Score: {int(score * 100)}% Blur: {blurValue}', (x, y - 0),
+                                       scale=2, thickness=3)
+
+        # ------  To Save --------
+        if save:
+            if all(listBlur) and listBlur != []:
+                # ------  Save Image  --------
+                timeNow = time()
+                timeNow = str(timeNow).split('.')
+                timeNow = timeNow[0] + timeNow[1]
+                cv2.imwrite(f"{outputFolderPath}/{timeNow}.jpg", img)
+                # ------  Save Label Text File  --------
+                for info in listInfo:
+                    f = open(f"{outputFolderPath}/{timeNow}.txt", 'a')
+                    f.write(info)
+                    f.close()
+
+    cv2.imshow("Image", imgOut)
+    cv2.waitKey(1)
+
+Split Data
+
+import os
+import random
+import shutil
+from itertools import islice
+
+outputFolderPath = "Dataset/SplitData"
+inputFolderPath = "Dataset/all"
+splitRatio = {"train": 0.7, "val": 0.2, "test": 0.1}
+classes = ["fake","real"]
+
+try:
+    shutil.rmtree(outputFolderPath)
+except OSError as e:
+    os.mkdir(outputFolderPath)
+
+# --------  Directories to Create -----------
+os.makedirs(f"{outputFolderPath}/train/images", exist_ok=True)
+os.makedirs(f"{outputFolderPath}/train/labels", exist_ok=True)
+os.makedirs(f"{outputFolderPath}/val/images", exist_ok=True)
+os.makedirs(f"{outputFolderPath}/val/labels", exist_ok=True)
+os.makedirs(f"{outputFolderPath}/test/images", exist_ok=True)
+os.makedirs(f"{outputFolderPath}/test/labels", exist_ok=True)
+
+# --------  Get the Names  -----------
+listNames = os.listdir(inputFolderPath)
+
+uniqueNames = []
+for name in listNames:
+    uniqueNames.append(name.split('.')[0])
+uniqueNames = list(set(uniqueNames))
+
+# --------  Shuffle -----------
+random.shuffle(uniqueNames)
+
+# --------  Find the number of images for each folder -----------
+lenData = len(uniqueNames)
+lenTrain = int(lenData * splitRatio['train'])
+lenVal = int(lenData * splitRatio['val'])
+lenTest = int(lenData * splitRatio['test'])
+
+# --------  Put remaining images in Training -----------
+if lenData != lenTrain + lenTest + lenVal:
+    remaining = lenData - (lenTrain + lenTest + lenVal)
+    lenTrain += remaining
+
+# --------  Split the list -----------
+lengthToSplit = [lenTrain, lenVal, lenTest]
+Input = iter(uniqueNames)
+Output = [list(islice(Input, elem)) for elem in lengthToSplit]
+print(f'Total Images:{lenData} \nSplit: {len(Output[0])} {len(Output[1])} {len(Output[2])}')
+
+# --------  Copy the files  -----------
+
+sequence = ['train', 'val', 'test']
+for i,out in enumerate(Output):
+    for fileName in out:
+        shutil.copy(f'{inputFolderPath}/{fileName}.jpg', f'{outputFolderPath}/{sequence[i]}/images/{fileName}.jpg')
+        shutil.copy(f'{inputFolderPath}/{fileName}.txt', f'{outputFolderPath}/{sequence[i]}/labels/{fileName}.txt')
+
+print("Split Process Completed...")
+
+
+# -------- Creating Data.yaml file  -----------
+
+dataYaml = f'path: ../Data\n\
+train: ../train/images\n\
+val: ../val/images\n\
+test: ../test/images\n\
+\n\
+nc: {len(classes)}\n\
+names: {classes}'
+
+
+f = open(f"{outputFolderPath}/data.yaml", 'a')
+f.write(dataYaml)
+f.close()
+
+print("Data.yaml file Created...")
+
+Train Offline
+
+from ultralytics import YOLO
+
+model = YOLO('yolov8n.pt')
+
+def main():
+    model.train(data='Dataset/SplitData/dataOffline.yaml', epochs=3)
+
+
+if __name__ == '__main__':
+    main()
+
+
+Main
+
+import math
+import time
+
+import cv2
+import cvzone
+from ultralytics import YOLO
+
+confidence = 0.6
+
+cap = cv2.VideoCapture(1)  # For Webcam
+cap.set(3, 640)
+cap.set(4, 480)
+# cap = cv2.VideoCapture("../Videos/motorbikes.mp4")  # For Video
+
+
+model = YOLO("../models/l_version_1_300.pt")
+
+classNames = ["fake", "real"]
+
+prev_frame_time = 0
+new_frame_time = 0
+
+while True:
+    new_frame_time = time.time()
+    success, img = cap.read()
+    results = model(img, stream=True, verbose=False)
+    for r in results:
+        boxes = r.boxes
+        for box in boxes:
+            # Bounding Box
+            x1, y1, x2, y2 = box.xyxy[0]
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            # cv2.rectangle(img,(x1,y1),(x2,y2),(255,0,255),3)
+            w, h = x2 - x1, y2 - y1
+            # Confidence
+            conf = math.ceil((box.conf[0] * 100)) / 100
+            # Class Name
+            cls = int(box.cls[0])
+            if conf > confidence:
+
+                if classNames[cls] == 'real':
+                    color = (0, 255, 0)
+                else:
+                    color = (0, 0, 255)
+
+                cvzone.cornerRect(img, (x1, y1, w, h),colorC=color,colorR=color)
+                cvzone.putTextRect(img, f'{classNames[cls].upper()} {int(conf*100)}%',
+                                   (max(0, x1), max(35, y1)), scale=2, thickness=4,colorR=color,
+                                   colorB=color)
+
+
+    fps = 1 / (new_frame_time - prev_frame_time)
+    prev_frame_time = new_frame_time
+    print(fps)
+
+    cv2.imshow("Image", img)
+    cv2.waitKey(1)
