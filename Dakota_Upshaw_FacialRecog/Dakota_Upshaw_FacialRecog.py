@@ -6,7 +6,7 @@ from time import time
 
 #----------------DATA COLLECTOR---------------------
 classID = 0 #0 is fake, 1 is real
-outputDir = 'Dataset/Datacollect'
+outputDir = '/home/dakota/378semproject/CECS378FacialRecog/Dakota_Upshaw_FacialRecog/Dataset/Datacollect'
 confidence = 0.8
 save =True
 debug = False
@@ -16,7 +16,7 @@ offsetPercentW = 10
 offsetPercentH = 20
 camW, camH = 640 ,480
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(2)
 cap.set(3, camW)
 cap.set(4, camH)
 
@@ -115,7 +115,7 @@ while True:
                #save label txt
                for info in listInfo:
 
-                   f = open(f"{outputDir}/{timeCurr}.txt", 'a')
+                   f = open(f"{outputDir}/{timeCurr}.txt", "a")
                    f.write(info)
                    f.close
             
